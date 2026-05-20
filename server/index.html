@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>lntorch</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: monospace;
+        }
+        pre {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <pre>
+   __     __               __
+  / /__  / /____  ________/ /
+ / / _ \/ __/ _ \/ __/ __/ _ \
+/_/_//_/\__/\___/_/  \__/_//_/
+    </pre>
+    {{if .PlayerID}}
+    <p style="margin: 0;" data-testid="waiting-msg">You're in the waiting room.</p>
+    <p data-testid="player-id">Player ID: {{.PlayerID}}</p>
+    <form method="POST" action="/leave">
+        <button type="submit" data-testid="leave-btn">Leave</button>
+    </form>
+    {{else}}
+    <form method="POST" action="/join">
+        <button type="submit" data-testid="join-btn">Join Waiting Room</button>
+    </form>
+    {{end}}
+</body>
+</html>
