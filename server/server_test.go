@@ -3,16 +3,35 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/ekzyis/lntorch/db"
 )
 
 func hasTestID(body, id string) bool {
 	return strings.Contains(body, `data-testid="`+id+`"`)
 }
 
+func setupTestServer(t *testing.T) (*Server, func()) {
+	t.Helper()
+	dbPath := "test_" + t.Name() + ".db"
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup := func() {
+		database.Close()
+		os.Remove(dbPath)
+	}
+	return New(database), cleanup
+}
+
 func TestIndexWithoutCookie(t *testing.T) {
-	s := New()
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
 
@@ -31,9 +50,24 @@ func TestIndexWithoutCookie(t *testing.T) {
 }
 
 func TestIndexWithCookie(t *testing.T) {
-	s := New()
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// First join to get a valid session
+	joinReq := httptest.NewRequest("POST", "/join", nil)
+	joinW := httptest.NewRecorder()
+	s.ServeHTTP(joinW, joinReq)
+
+	var sessionCookie *http.Cookie
+	for _, c := range joinW.Result().Cookies() {
+		if c.Name == "session" {
+			sessionCookie = c
+			break
+		}
+	}
+
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: "player_id", Value: "test123"})
+	req.AddCookie(sessionCookie)
 	w := httptest.NewRecorder()
 
 	s.ServeHTTP(w, req)
@@ -45,11 +79,8 @@ func TestIndexWithCookie(t *testing.T) {
 	if !hasTestID(body, "waiting-msg") {
 		t.Error("expected waiting-msg")
 	}
-	if !hasTestID(body, "player-id") {
-		t.Error("expected player-id")
-	}
-	if !strings.Contains(body, "test123") {
-		t.Error("expected player ID in body")
+	if !hasTestID(body, "player-count") {
+		t.Error("expected player-count")
 	}
 	if !hasTestID(body, "leave-btn") {
 		t.Error("expected leave-btn")
@@ -57,7 +88,9 @@ func TestIndexWithCookie(t *testing.T) {
 }
 
 func TestJoinSetsCookie(t *testing.T) {
-	s := New()
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
 	req := httptest.NewRequest("POST", "/join", nil)
 	w := httptest.NewRecorder()
 
@@ -67,25 +100,40 @@ func TestJoinSetsCookie(t *testing.T) {
 		t.Errorf("expected redirect (303), got %d", w.Code)
 	}
 	cookies := w.Result().Cookies()
-	var playerCookie *http.Cookie
+	var sessionCookie *http.Cookie
 	for _, c := range cookies {
-		if c.Name == "player_id" {
-			playerCookie = c
+		if c.Name == "session" {
+			sessionCookie = c
 			break
 		}
 	}
-	if playerCookie == nil {
-		t.Fatal("expected player_id cookie to be set")
+	if sessionCookie == nil {
+		t.Fatal("expected session cookie to be set")
 	}
-	if playerCookie.Value == "" {
-		t.Error("expected non-empty player_id")
+	if sessionCookie.Value == "" {
+		t.Error("expected non-empty session")
 	}
 }
 
 func TestLeaveClearsCookie(t *testing.T) {
-	s := New()
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// First join
+	joinReq := httptest.NewRequest("POST", "/join", nil)
+	joinW := httptest.NewRecorder()
+	s.ServeHTTP(joinW, joinReq)
+
+	var sessionCookie *http.Cookie
+	for _, c := range joinW.Result().Cookies() {
+		if c.Name == "session" {
+			sessionCookie = c
+			break
+		}
+	}
+
 	req := httptest.NewRequest("POST", "/leave", nil)
-	req.AddCookie(&http.Cookie{Name: "player_id", Value: "test123"})
+	req.AddCookie(sessionCookie)
 	w := httptest.NewRecorder()
 
 	s.ServeHTTP(w, req)
@@ -94,23 +142,71 @@ func TestLeaveClearsCookie(t *testing.T) {
 		t.Errorf("expected redirect (303), got %d", w.Code)
 	}
 	cookies := w.Result().Cookies()
-	var playerCookie *http.Cookie
+	var clearedCookie *http.Cookie
 	for _, c := range cookies {
-		if c.Name == "player_id" {
-			playerCookie = c
+		if c.Name == "session" {
+			clearedCookie = c
 			break
 		}
 	}
-	if playerCookie == nil {
-		t.Fatal("expected player_id cookie in response")
+	if clearedCookie == nil {
+		t.Fatal("expected session cookie in response")
 	}
-	if playerCookie.MaxAge != -1 {
-		t.Errorf("expected MaxAge -1 to clear cookie, got %d", playerCookie.MaxAge)
+	if clearedCookie.MaxAge != -1 {
+		t.Errorf("expected MaxAge -1 to clear cookie, got %d", clearedCookie.MaxAge)
+	}
+}
+
+func TestPlayerCount(t *testing.T) {
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Join with first player
+	req1 := httptest.NewRequest("POST", "/join", nil)
+	w1 := httptest.NewRecorder()
+	s.ServeHTTP(w1, req1)
+	var cookie1 *http.Cookie
+	for _, c := range w1.Result().Cookies() {
+		if c.Name == "session" {
+			cookie1 = c
+			break
+		}
+	}
+
+	// Check count is 1
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(cookie1)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if !strings.Contains(w.Body.String(), "Players: 1") {
+		t.Error("expected player count 1")
+	}
+
+	// Join with second player
+	req2 := httptest.NewRequest("POST", "/join", nil)
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, req2)
+	var cookie2 *http.Cookie
+	for _, c := range w2.Result().Cookies() {
+		if c.Name == "session" {
+			cookie2 = c
+			break
+		}
+	}
+
+	// Check count is 2
+	req = httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(cookie2)
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if !strings.Contains(w.Body.String(), "Players: 2") {
+		t.Error("expected player count 2")
 	}
 }
 
 func TestFullFlow(t *testing.T) {
-	s := New()
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
 
 	// Start without cookie
 	req := httptest.NewRequest("GET", "/", nil)
@@ -124,17 +220,17 @@ func TestFullFlow(t *testing.T) {
 	req = httptest.NewRequest("POST", "/join", nil)
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, req)
-	var playerCookie *http.Cookie
+	var sessionCookie *http.Cookie
 	for _, c := range w.Result().Cookies() {
-		if c.Name == "player_id" {
-			playerCookie = c
+		if c.Name == "session" {
+			sessionCookie = c
 			break
 		}
 	}
 
 	// Verify in room
 	req = httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(playerCookie)
+	req.AddCookie(sessionCookie)
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	if !hasTestID(w.Body.String(), "waiting-msg") {
@@ -143,7 +239,7 @@ func TestFullFlow(t *testing.T) {
 
 	// Leave
 	req = httptest.NewRequest("POST", "/leave", nil)
-	req.AddCookie(playerCookie)
+	req.AddCookie(sessionCookie)
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 

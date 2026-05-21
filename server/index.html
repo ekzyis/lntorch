@@ -27,13 +27,13 @@
     </pre>
     {{if .PlayerID}}
     <p style="margin: 0;" data-testid="waiting-msg">You're in the waiting room.</p>
-    <p data-testid="player-id">Player ID: {{.PlayerID}}</p>
+    <p data-testid="player-count">Players: {{.PlayerCount}}</p>
     <form method="POST" action="/leave">
         <button type="submit" data-testid="leave-btn">Leave</button>
     </form>
     {{else}}
     <form method="POST" action="/join">
-        <button type="submit" data-testid="join-btn">Join Waiting Room</button>
+        <button type="submit" data-testid="join-btn">Join Waiting Room ({{.PlayerCount}}/10)</button>
     </form>
     {{end}}
 </body>

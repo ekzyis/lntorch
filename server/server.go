@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"html/template"
 	"net/http"
+
+	"github.com/ekzyis/lntorch/db"
 )
 
 //go:embed index.html
@@ -14,15 +16,13 @@ var indexHTML string
 var indexTmpl = template.Must(template.New("index").Parse(indexHTML))
 
 type Server struct {
+	db  *db.DB
 	mux *http.ServeMux
 }
 
-type HTMLContext struct {
-	PlayerID string
-}
-
-func New() *Server {
+func New(database *db.DB) *Server {
 	s := &Server{
+		db:  database,
 		mux: http.NewServeMux(),
 	}
 	s.mux.HandleFunc("/", s.indexHandler)
@@ -31,21 +31,52 @@ func New() *Server {
 	return s
 }
 
+type HTMLContext struct {
+	PlayerID    int64
+	PlayerCount int
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-func (s *Server) generatePlayerID() string {
+func (s *Server) generateSession() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
+func (s *Server) getPlayer(r *http.Request) *db.Player {
+	cookie, err := r.Cookie("session")
+	if err != nil {
+		return nil
+	}
+	player, err := s.db.GetPlayerBySession(cookie.Value)
+	if err != nil {
+		return nil
+	}
+	return player
+}
+
 func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 	var ctx HTMLContext
-	if cookie, err := r.Cookie("player_id"); err == nil {
-		ctx.PlayerID = cookie.Value
+
+	player := s.getPlayer(r)
+	if player != nil {
+		game, _ := s.db.GetPlayerGame(player.ID)
+		if game != nil {
+			ctx.PlayerID = player.ID
+			count, _ := s.db.CountPlayersInGame(game.ID)
+			ctx.PlayerCount = count
+		}
+	} else {
+		game, _ := s.db.GetOrCreateWaitingGame()
+		if game != nil {
+			count, _ := s.db.CountPlayersInGame(game.ID)
+			ctx.PlayerCount = count
+		}
 	}
+
 	indexTmpl.Execute(w, ctx)
 }
 
@@ -55,10 +86,27 @@ func (s *Server) joinHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	playerID := s.generatePlayerID()
+	session := s.generateSession()
+	player, err := s.db.CreatePlayer(session)
+	if err != nil {
+		http.Error(w, "Failed to create player", http.StatusInternalServerError)
+		return
+	}
+
+	game, err := s.db.GetOrCreateWaitingGame()
+	if err != nil {
+		http.Error(w, "Failed to get game", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.db.JoinGame(player.ID, game.ID); err != nil {
+		http.Error(w, "Failed to join game", http.StatusInternalServerError)
+		return
+	}
+
 	http.SetCookie(w, &http.Cookie{
-		Name:     "player_id",
-		Value:    playerID,
+		Name:     "session",
+		Value:    session,
 		Path:     "/",
 		HttpOnly: true,
 	})
@@ -71,8 +119,13 @@ func (s *Server) leaveHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	player := s.getPlayer(r)
+	if player != nil {
+		s.db.DeletePlayer(player.ID)
+	}
+
 	http.SetCookie(w, &http.Cookie{
-		Name:   "player_id",
+		Name:   "session",
 		Value:  "",
 		Path:   "/",
 		MaxAge: -1,

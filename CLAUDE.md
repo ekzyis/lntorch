@@ -31,6 +31,13 @@ Cookie = player ID (set on join), no accounts.
 
 Go, net/http, SQLite, htmx, LND (gRPC)
 
+## Lightning
+
+Payments table links payment_hash to player/game for fast lookups.
+LND is source of truth for payment status (pending/settled/cancelled).
+Use SubscribeInvoices (gRPC stream) for real-time payment updates.
+On restart: check pending invoices in DB against LND, process any missed.
+
 ## Later
 
 - Push notifications with auto-pay (likely requires custodial balance)
