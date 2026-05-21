@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/ekzyis/lntorch/db"
 	"github.com/ekzyis/lntorch/server"
@@ -22,7 +23,12 @@ func main() {
 	}
 	defer database.Close()
 
+	port := "4444"
+	if len(os.Args) > 1 {
+		port = os.Args[1]
+	}
+
 	s := server.New(database)
-	fmt.Println("Server running on http://localhost:8080")
-	http.ListenAndServe(":8080", s)
+	fmt.Printf("lntorch running on port %s\n", port)
+	http.ListenAndServe(":"+port, s)
 }
