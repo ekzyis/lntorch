@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - develop
+      - claude
 
 concurrency:
   group: deploy
