@@ -124,6 +124,10 @@ cringe and "Why did this make me laugh?", it's great.
 
 Smooth page transitions. There aren't many pages.
 
+Buttons must feel **very responsive** — they react instantly to input. CSS
+transitions work against that, so don't put `transition` on interactive
+controls. Save the smooth, deliberate animation for page/state transitions.
+
 This game LOVES you, and shows it to you through its obsession over details it
 thinks most wouldn't notice -- but YOU would.
 

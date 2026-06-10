@@ -10,6 +10,7 @@
             --fire-bright: #ffd27a;
             --ember: #c2410c;
             --dark: #0a0705;
+            --flame: 1; /* live brightness, driven by the flame script */
         }
         * { box-sizing: border-box; }
         body {
@@ -22,25 +23,34 @@
             padding: 1.5rem;
             font-family: "Courier New", monospace;
             color: var(--fire-bright);
-            background:
-                radial-gradient(ellipse 60% 55% at 50% 32%, rgba(255, 155, 61, 0.20), transparent 70%),
-                radial-gradient(circle at 50% 0%, #1a120b, var(--dark) 60%);
+            background: radial-gradient(circle at 50% 50%, #1a120b, var(--dark) 70%);
             overflow: hidden;
+        }
+        /* the torch glow, on its own layer so it can flicker in sync with the logo */
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            background: radial-gradient(ellipse 60% 55% at 50% 45%, rgba(255, 155, 61, 0.14), transparent 70%);
+            filter: brightness(var(--flame));
         }
         .logo {
             margin: 0;
             color: var(--fire);
             font-size: clamp(9px, 2.4vw, 17px);
             line-height: 1.15;
-            text-shadow: 0 0 8px rgba(255, 155, 61, 0.65), 0 0 26px rgba(194, 65, 12, 0.5);
-            animation: flicker 3s infinite;
-        }
-        @keyframes flicker {
-            0%, 100% { opacity: 1; }
-            48% { opacity: 0.93; }
-            50% { opacity: 0.78; text-shadow: 0 0 4px rgba(255, 155, 61, 0.4), 0 0 12px rgba(194, 65, 12, 0.35); }
-            52% { opacity: 0.95; }
-            70% { opacity: 0.88; }
+            /* neon-sign glow: tight hot core, then progressively wider amber/ember
+               bloom so the light radiates from the wordmark itself */
+            text-shadow:
+                0 0 2px var(--fire-bright),
+                0 0 6px var(--fire),
+                0 0 14px var(--fire),
+                0 0 28px var(--ember),
+                0 0 52px var(--ember),
+                0 0 84px rgba(194, 65, 12, 0.8);
+            filter: brightness(var(--flame));
         }
         .tagline {
             margin: 1.3rem 0 2.2rem;
@@ -56,28 +66,43 @@
             color: rgba(255, 210, 122, 0.6);
         }
         form { margin: 0; }
+        /* neon doorway: hollow glowing tube, not a solid block. lights up as
+           you approach (hover), like stepping toward a torch-lit archway */
         button {
             font-family: inherit;
-            font-size: 1rem;
-            color: var(--dark);
-            background: linear-gradient(180deg, var(--fire-bright), var(--fire));
-            border: 1px solid var(--fire-bright);
+            font-size: 0.95rem;
+            color: var(--fire-bright);
+            background: transparent;
+            border: 1px solid var(--fire);
             border-radius: 4px;
-            padding: 0.7rem 1.6rem;
+            padding: 0.75rem 1.8rem;
             cursor: pointer;
-            letter-spacing: 0.03em;
-            box-shadow: 0 0 16px rgba(255, 155, 61, 0.45);
-            transition: transform 0.08s ease, box-shadow 0.2s ease, filter 0.2s ease;
+            letter-spacing: 0.12em;
+            text-transform: lowercase;
+            text-shadow: 0 0 4px var(--fire), 0 0 11px rgba(194, 65, 12, 0.7);
+            box-shadow: 0 0 8px rgba(255, 155, 61, 0.3), inset 0 0 9px rgba(255, 155, 61, 0.12);
+            /* no transition: buttons must react instantly to feel responsive */
         }
-        button:hover { box-shadow: 0 0 28px rgba(255, 155, 61, 0.75); filter: brightness(1.08); }
+        button:hover {
+            color: #fff3df;
+            border-color: var(--fire-bright);
+            text-shadow: 0 0 6px var(--fire-bright), 0 0 16px var(--fire), 0 0 30px var(--ember);
+            box-shadow: 0 0 20px rgba(255, 155, 61, 0.6), inset 0 0 16px rgba(255, 155, 61, 0.28);
+        }
         button:active { transform: translateY(1px); }
         .leave button {
-            background: transparent;
-            color: rgba(255, 210, 122, 0.6);
-            border: 1px solid rgba(255, 210, 122, 0.3);
+            color: rgba(255, 210, 122, 0.55);
+            border-color: rgba(255, 210, 122, 0.25);
+            text-shadow: none;
             box-shadow: none;
+            letter-spacing: 0.08em;
         }
-        .leave button:hover { color: var(--fire-bright); border-color: var(--fire); filter: none; }
+        .leave button:hover {
+            color: var(--fire-bright);
+            border-color: var(--fire);
+            text-shadow: 0 0 5px rgba(255, 155, 61, 0.5);
+            box-shadow: 0 0 10px rgba(255, 155, 61, 0.25);
+        }
         footer {
             position: fixed;
             bottom: 0.8rem;
@@ -94,7 +119,7 @@
  / / _ \/ __/ _ \/ __/ __/ _ \
 /_/_//_/\__/\___/_/  \__/_//_/
     </pre>
-    <p class="tagline">pay to keep the torch lit. last one standing wins the pot.</p>
+    <p class="tagline">Pay to keep the torch lit and win the pot.</p>
     {{if .PlayerID}}
     <p class="msg" data-testid="waiting-msg">You're in the waiting room.</p>
     <p class="count" data-testid="player-count">Players: {{.PlayerCount}}</p>
@@ -103,9 +128,29 @@
     </form>
     {{else}}
     <form method="POST" action="/join">
-        <button type="submit" data-testid="join-btn">Join Waiting Room ({{.PlayerCount}}/10)</button>
+        <button type="submit" data-testid="join-btn">Enter the dungeon · {{.PlayerCount}}/10</button>
     </form>
     {{end}}
     <footer><a data-testid="commit" href="https://github.com/ekzyis/lntorch/commit/{{.Commit}}">{{.Commit}}</a></footer>
+    <script>
+        // Live flame: fast, irregular, never-repeating brightness. New random
+        // target every 50-180ms (occasionally a deeper dip), eased toward so it
+        // flickers without snapping to black.
+        (function () {
+            if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            var root = document.documentElement, cur = 1, target = 1, next = 0;
+            function rand(a, b) { return a + Math.random() * (b - a); }
+            function tick(t) {
+                if (t >= next) {
+                    target = Math.random() < 0.2 ? rand(0.5, 0.72) : rand(0.82, 1.18);
+                    next = t + rand(50, 180);
+                }
+                cur += (target - cur) * 0.3;
+                root.style.setProperty('--flame', cur.toFixed(3));
+                requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+        })();
+    </script>
 </body>
 </html>
