@@ -178,7 +178,7 @@ func TestPlayerCount(t *testing.T) {
 	req.AddCookie(cookie1)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
-	if !strings.Contains(w.Body.String(), "Players: 1") {
+	if !strings.Contains(w.Body.String(), "Heroes: 1") {
 		t.Error("expected player count 1")
 	}
 
@@ -199,7 +199,7 @@ func TestPlayerCount(t *testing.T) {
 	req.AddCookie(cookie2)
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, req)
-	if !strings.Contains(w.Body.String(), "Players: 2") {
+	if !strings.Contains(w.Body.String(), "Heroes: 2") {
 		t.Error("expected player count 2")
 	}
 }

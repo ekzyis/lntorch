@@ -14,17 +14,20 @@
         }
         * { box-sizing: border-box; }
         body {
+            min-height: 100vh;
+            margin: 0;
+            font-family: "Courier New", monospace;
+            color: var(--fire-bright);
+            background: radial-gradient(circle at 50% 50%, #1a120b, var(--dark) 70%);
+            overflow: hidden;
+        }
+        #view {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            margin: 0;
             padding: 1.5rem;
-            font-family: "Courier New", monospace;
-            color: var(--fire-bright);
-            background: radial-gradient(circle at 50% 50%, #1a120b, var(--dark) 70%);
-            overflow: hidden;
         }
         /* the torch glow, on its own layer so it can flicker in sync with the logo */
         body::before {
@@ -64,6 +67,13 @@
             margin: 0 0 1.5rem;
             font-size: 0.9rem;
             color: rgba(255, 210, 122, 0.6);
+        }
+        /* tiny count under the join button */
+        .players {
+            margin: 0.9rem 0 0;
+            font-size: 0.7rem;
+            letter-spacing: 0.06em;
+            color: rgba(255, 210, 122, 0.45);
         }
         form { margin: 0; }
         /* neon doorway: hollow glowing tube, not a solid block. lights up as
@@ -105,14 +115,34 @@
         }
         footer {
             position: fixed;
+            left: 0;
+            right: 0;
             bottom: 0.8rem;
+            text-align: center;
             font-size: 0.7rem;
         }
         footer a { color: rgba(255, 210, 122, 0.4); text-decoration: none; }
         footer a:hover { color: var(--fire); }
+        /* black veil for entering/leaving the waiting room: snuff to black
+           quickly, reveal back slowly — like a torch going out at the doorway */
+        #veil {
+            position: fixed;
+            inset: 0;
+            z-index: 20;
+            background: #000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 430ms ease-out;
+        }
+        #veil.lit {
+            opacity: 1;
+            transition: opacity 210ms ease-in;
+        }
     </style>
 </head>
 <body>
+    <div id="veil"></div>
+    <main id="view">
     <pre class="logo">
    __     __               __
   / /__  / /____  ________/ /
@@ -122,15 +152,21 @@
     <p class="tagline">Pay to keep the torch lit and win the pot.</p>
     {{if .PlayerID}}
     <p class="msg" data-testid="waiting-msg">You're in the waiting room.</p>
-    <p class="count" data-testid="player-count">Players: {{.PlayerCount}}</p>
+    <p class="count" data-testid="player-count">Heroes: {{.PlayerCount}}</p>
     <form class="leave" method="POST" action="/leave">
         <button type="submit" data-testid="leave-btn">Leave</button>
     </form>
     {{else}}
     <form method="POST" action="/join">
-        <button type="submit" data-testid="join-btn">Enter the dungeon · {{.PlayerCount}}/10</button>
+        <button type="submit" data-testid="join-btn">Enter the dungeon</button>
     </form>
+    {{if eq .PlayerCount 1}}
+    <p class="players" data-testid="players-waiting">1 hero waiting</p>
+    {{else if gt .PlayerCount 1}}
+    <p class="players" data-testid="players-waiting">{{.PlayerCount}} heroes waiting</p>
     {{end}}
+    {{end}}
+    </main>
     <footer><a data-testid="commit" href="https://github.com/ekzyis/lntorch/commit/{{.Commit}}">{{.Commit}}</a></footer>
     <script>
         // Live flame: fast, irregular, never-repeating brightness. New random
@@ -150,6 +186,34 @@
                 requestAnimationFrame(tick);
             }
             requestAnimationFrame(tick);
+        })();
+
+        // Enter/leave the waiting room: snuff the screen to black, swap the
+        // view while it's dark, then reveal it back up. Plain form POST still
+        // works without JS; honours prefers-reduced-motion.
+        (function () {
+            var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+            var veil = document.getElementById('veil');
+            function apply(text) {
+                var nv = new DOMParser().parseFromString(text, 'text/html').querySelector('#view');
+                if (nv) document.getElementById('view').innerHTML = nv.innerHTML;
+            }
+            document.addEventListener('submit', function (e) {
+                var form = e.target;
+                if (!form || form.tagName !== 'FORM') return;
+                e.preventDefault();
+                var pending = fetch(form.action, { method: 'POST' }).then(function (r) { return r.text(); });
+                if (reduce) { pending.then(apply).catch(function () { form.submit(); }); return; }
+                veil.addEventListener('transitionend', function onDark(ev) {
+                    if (ev.propertyName !== 'opacity') return;
+                    veil.removeEventListener('transitionend', onDark);
+                    pending.then(function (text) {
+                        apply(text);
+                        requestAnimationFrame(function () { veil.classList.remove('lit'); });
+                    }).catch(function () { form.submit(); });
+                });
+                veil.classList.add('lit');
+            });
         })();
     </script>
 </body>
