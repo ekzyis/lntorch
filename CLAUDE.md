@@ -2,51 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project
+**Git Commits**
 
-lntorch.gg - Lightning Network elimination game.
+* Author: ekzyis <ramdip.singhgill@gmail.com>
+* Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 
-## Game Rules
+**README.md**
 
-- Players join a waiting room by buying a ticket (Lightning)
-- Game starts at 10 players, or 2+ players after a few hours
-- Refund after 24h if game doesn't start (hold invoices)
-- Each player has a torch (timer, e.g. 24h)
-- Pay to "pass the torch" (reset your timer)
-- Torch burns out = eliminated
-- Last player standing wins the pot
+Read README.md for the rest. It's meant to be read by both of us. It's meant to
+be written by me. If it gets out of sync, or something isn't clear, bring it up.
 
-## MVP
-
-Game loop only, raw HTML + htmx, no design.
-Cookie = player ID (set on join), no accounts.
-
-## TODOs
-
-- [x] Go server with landing page
-  - "Join Waiting Room" button
-  - Sets cookie (player ID) on click
-
-## Stack
-
-Go, net/http, SQLite, htmx, LND (gRPC)
-
-## Lightning
-
-Payments table links payment_hash to player/game for fast lookups.
-LND is source of truth for payment status (pending/settled/cancelled).
-Use SubscribeInvoices (gRPC stream) for real-time payment updates.
-On restart: check pending invoices in DB against LND, process any missed.
-
-## Later
-
-- Push notifications with auto-pay (likely requires custodial balance)
-
-## Design
-
-Simple, (animated) pixel art, maybe anachronistic.
-
-## Git Commits
-
-Author: ekzyis <ramdip.singhgill@gmail.com>
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+**Oh, and remember: Make No Mistakes. I love you.**

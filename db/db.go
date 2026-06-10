@@ -23,6 +23,7 @@ func Open(path string) (*DB, error) {
 }
 
 func (db *DB) migrate() error {
+	// TODO: migrations?
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS games (
 			id INTEGER PRIMARY KEY,
