@@ -16,6 +16,12 @@
         pre {
             margin: 0;
         }
+        footer {
+            position: fixed;
+            bottom: 0.5em;
+            font-size: 0.75em;
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body>
@@ -36,5 +42,6 @@
         <button type="submit" data-testid="join-btn">Join Waiting Room ({{.PlayerCount}}/10)</button>
     </form>
     {{end}}
+    <footer><a data-testid="commit" href="https://github.com/ekzyis/lntorch/commit/{{.Commit}}">{{.Commit}}</a></footer>
 </body>
 </html>

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"html/template"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/ekzyis/lntorch/db"
 )
@@ -14,6 +15,25 @@ import (
 var indexHTML string
 
 var indexTmpl = template.Must(template.New("index").Parse(indexHTML))
+
+// commit is the short VCS revision stamped into the binary by `go build`.
+var commit = readCommit()
+
+func readCommit() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			if len(s.Value) >= 7 {
+				return s.Value[:7]
+			}
+			return s.Value
+		}
+	}
+	return "unknown"
+}
 
 type Server struct {
 	db  *db.DB
@@ -34,6 +54,7 @@ func New(database *db.DB) *Server {
 type HTMLContext struct {
 	PlayerID    int64
 	PlayerCount int
+	Commit      string
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +80,7 @@ func (s *Server) getPlayer(r *http.Request) *db.Player {
 }
 
 func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
-	var ctx HTMLContext
+	ctx := HTMLContext{Commit: commit}
 
 	player := s.getPlayer(r)
 	if player != nil {
