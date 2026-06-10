@@ -1,9 +1,17 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>lntorch</title>
     <style>
+        :root {
+            --fire: #ff9b3d;
+            --fire-bright: #ffd27a;
+            --ember: #c2410c;
+            --dark: #0a0705;
+        }
+        * { box-sizing: border-box; }
         body {
             display: flex;
             flex-direction: column;
@@ -11,30 +19,86 @@
             justify-content: center;
             min-height: 100vh;
             margin: 0;
-            font-family: monospace;
+            padding: 1.5rem;
+            font-family: "Courier New", monospace;
+            color: var(--fire-bright);
+            background:
+                radial-gradient(ellipse 60% 55% at 50% 32%, rgba(255, 155, 61, 0.20), transparent 70%),
+                radial-gradient(circle at 50% 0%, #1a120b, var(--dark) 60%);
+            overflow: hidden;
         }
-        pre {
+        .logo {
             margin: 0;
+            color: var(--fire);
+            font-size: clamp(9px, 2.4vw, 17px);
+            line-height: 1.15;
+            text-shadow: 0 0 8px rgba(255, 155, 61, 0.65), 0 0 26px rgba(194, 65, 12, 0.5);
+            animation: flicker 3s infinite;
         }
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            48% { opacity: 0.93; }
+            50% { opacity: 0.78; text-shadow: 0 0 4px rgba(255, 155, 61, 0.4), 0 0 12px rgba(194, 65, 12, 0.35); }
+            52% { opacity: 0.95; }
+            70% { opacity: 0.88; }
+        }
+        .tagline {
+            margin: 1.3rem 0 2.2rem;
+            font-size: 0.85rem;
+            letter-spacing: 0.04em;
+            color: rgba(255, 210, 122, 0.7);
+            text-align: center;
+        }
+        .msg { margin: 0 0 0.4rem; }
+        .count {
+            margin: 0 0 1.5rem;
+            font-size: 0.9rem;
+            color: rgba(255, 210, 122, 0.6);
+        }
+        form { margin: 0; }
+        button {
+            font-family: inherit;
+            font-size: 1rem;
+            color: var(--dark);
+            background: linear-gradient(180deg, var(--fire-bright), var(--fire));
+            border: 1px solid var(--fire-bright);
+            border-radius: 4px;
+            padding: 0.7rem 1.6rem;
+            cursor: pointer;
+            letter-spacing: 0.03em;
+            box-shadow: 0 0 16px rgba(255, 155, 61, 0.45);
+            transition: transform 0.08s ease, box-shadow 0.2s ease, filter 0.2s ease;
+        }
+        button:hover { box-shadow: 0 0 28px rgba(255, 155, 61, 0.75); filter: brightness(1.08); }
+        button:active { transform: translateY(1px); }
+        .leave button {
+            background: transparent;
+            color: rgba(255, 210, 122, 0.6);
+            border: 1px solid rgba(255, 210, 122, 0.3);
+            box-shadow: none;
+        }
+        .leave button:hover { color: var(--fire-bright); border-color: var(--fire); filter: none; }
         footer {
             position: fixed;
-            bottom: 0.5em;
-            font-size: 0.75em;
-            opacity: 0.5;
+            bottom: 0.8rem;
+            font-size: 0.7rem;
         }
+        footer a { color: rgba(255, 210, 122, 0.4); text-decoration: none; }
+        footer a:hover { color: var(--fire); }
     </style>
 </head>
 <body>
-    <pre>
+    <pre class="logo">
    __     __               __
   / /__  / /____  ________/ /
  / / _ \/ __/ _ \/ __/ __/ _ \
 /_/_//_/\__/\___/_/  \__/_//_/
     </pre>
+    <p class="tagline">pay to keep the torch lit. last one standing wins the pot.</p>
     {{if .PlayerID}}
-    <p style="margin: 0;" data-testid="waiting-msg">You're in the waiting room.</p>
-    <p data-testid="player-count">Players: {{.PlayerCount}}</p>
-    <form method="POST" action="/leave">
+    <p class="msg" data-testid="waiting-msg">You're in the waiting room.</p>
+    <p class="count" data-testid="player-count">Players: {{.PlayerCount}}</p>
+    <form class="leave" method="POST" action="/leave">
         <button type="submit" data-testid="leave-btn">Leave</button>
     </form>
     {{else}}
