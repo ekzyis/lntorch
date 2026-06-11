@@ -43,6 +43,13 @@ func (db *DB) migrate() error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (game_id, player_id)
 		);
+
+		CREATE TABLE IF NOT EXISTS invoices (
+			id INTEGER PRIMARY KEY,
+			payment_hash TEXT UNIQUE NOT NULL,
+			session TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
 	`)
 	return err
 }
@@ -134,6 +141,43 @@ func (db *DB) GetOrCreateWaitingGame() (*Game, error) {
 		return nil, err
 	}
 	return &g, nil
+}
+
+func (db *DB) CreateInvoice(session, paymentHash string) error {
+	_, err := db.Exec("INSERT INTO invoices (session, payment_hash) VALUES (?, ?)", session, paymentHash)
+	return err
+}
+
+// InvoiceBelongsToSession reports whether the invoice with this payment hash
+// was issued to this session — the cookie-as-authentication check.
+func (db *DB) InvoiceBelongsToSession(session, paymentHash string) (bool, error) {
+	var one int
+	err := db.QueryRow(
+		"SELECT 1 FROM invoices WHERE payment_hash = ? AND session = ?",
+		paymentHash, session).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// LatestInvoiceHash returns the payment hash of the session's most recent
+// invoice, or "" if it has none.
+func (db *DB) LatestInvoiceHash(session string) (string, error) {
+	var hash string
+	err := db.QueryRow(
+		"SELECT payment_hash FROM invoices WHERE session = ? ORDER BY id DESC LIMIT 1",
+		session).Scan(&hash)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return hash, nil
 }
 
 func (db *DB) CountPlayersInGame(gameID int64) (int, error) {
