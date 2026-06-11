@@ -141,11 +141,118 @@
             opacity: 1;
             transition: opacity 210ms ease-in;
         }
+        /* invoice screen: QR in a glowing frame with lightning striking around it */
+        #invoice { display: flex; flex-direction: column; align-items: center; }
+        .qr-frame {
+            position: relative;
+            padding: 14px;
+            border: 1px solid var(--fire);
+            border-radius: 6px;
+            background: #0d0a08;
+            box-shadow: 0 0 18px rgba(255, 155, 61, 0.35), inset 0 0 12px rgba(0, 0, 0, 0.6);
+        }
+        .qr {
+            display: block;
+            width: 220px;
+            height: 220px;
+            image-rendering: pixelated;
+            border-radius: 2px;
+        }
+        /* lightning behind the QR: each strike is a long streak anchored at the
+           QR centre, on a layer behind the content so the QR hides its origin.
+           The bolts fire once, when payment lands (.strikes.fire). */
+        .strikes {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            z-index: -1;
+            pointer-events: none;
+        }
+        .strike {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 75vmax;
+            height: 38px;
+            margin-top: -19px;
+            transform-origin: left center;
+            opacity: 0;
+            filter: drop-shadow(0 0 3px var(--fire)) drop-shadow(0 0 9px var(--ember));
+        }
+        .strike svg { width: 100%; height: 100%; display: block; }
+        .strike polyline { fill: none; stroke: var(--fire-bright); stroke-width: 2; stroke-linejoin: round; }
+        /* the .strike opacity animation fades this radial flash with the bolt */
+        .strike::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 55vmax;
+            height: 55vmax;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 155, 61, 0.12), transparent 62%);
+            pointer-events: none;
+        }
+        .strike.s1 { transform: rotate(-13deg); }
+        .strike.s2 { transform: rotate(101deg); }
+        .strike.s3 { transform: rotate(170deg); }
+        .strike.s4 { transform: rotate(248deg); }
+        .strikes.fire .strike { animation: strike 0.9s ease-out both; }
+        .strikes.fire .s1 { animation-delay: 0.02s; }
+        .strikes.fire .s2 { animation-delay: 0.16s; }
+        .strikes.fire .s3 { animation-delay: 0.30s; }
+        .strikes.fire .s4 { animation-delay: 0.09s; }
+        @keyframes strike {
+            0%   { opacity: 0; }
+            15%  { opacity: 1; }
+            35%  { opacity: 0.3; }
+            55%  { opacity: 0.95; }
+            100% { opacity: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .strikes.fire .strike { animation: none; opacity: 0; }
+        }
+        .invoice-amount {
+            margin: 1.4rem 0 0.3rem;
+            color: var(--fire-bright);
+            letter-spacing: 0.04em;
+        }
+        .invoice-hint {
+            margin: 0 0 0.9rem;
+            font-size: 0.75rem;
+            color: rgba(255, 210, 122, 0.45);
+        }
+        .copy { font-size: 0.7rem; padding: 0.4rem 1rem; }
     </style>
 </head>
 <body>
     <div id="veil"></div>
     <main id="view">
+    {{if .Invoice}}
+    <div id="invoice" data-testid="invoice">
+        <div class="qr-frame">
+            <div class="strikes" aria-hidden="true">
+                <span class="strike s1"><svg viewBox="0 0 240 40" preserveAspectRatio="none"><polyline points="0,20 28,7 50,31 78,9 104,30 132,11 160,29 190,8 216,27 240,18"/></svg></span>
+                <span class="strike s2"><svg viewBox="0 0 240 40" preserveAspectRatio="none"><polyline points="0,20 28,7 50,31 78,9 104,30 132,11 160,29 190,8 216,27 240,18"/></svg></span>
+                <span class="strike s3"><svg viewBox="0 0 240 40" preserveAspectRatio="none"><polyline points="0,20 28,7 50,31 78,9 104,30 132,11 160,29 190,8 216,27 240,18"/></svg></span>
+                <span class="strike s4"><svg viewBox="0 0 240 40" preserveAspectRatio="none"><polyline points="0,20 28,7 50,31 78,9 104,30 132,11 160,29 190,8 216,27 240,18"/></svg></span>
+            </div>
+            <img class="qr" src="{{.Invoice.QR}}" alt="lightning invoice QR code">
+        </div>
+        <p class="invoice-amount">{{.Invoice.Sats}} sats to enter</p>
+        <p class="invoice-hint">waiting for payment…</p>
+        <button type="button" class="copy" data-bolt11="{{.Invoice.Bolt11}}">copy invoice</button>
+    </div>
+    {{else if .PlayerID}}
+    <p class="msg" data-testid="waiting-msg">You're in the waiting room.</p>
+    <p class="count" data-testid="player-count">Heroes: {{.PlayerCount}}</p>
+    <form class="leave" method="POST" action="/leave">
+        <button type="submit" data-testid="leave-btn">Leave</button>
+    </form>
+    {{else}}
     <pre class="logo">
    __     __               __
   / /__  / /____  ________/ /
@@ -153,13 +260,6 @@
 /_/_//_/\__/\___/_/  \__/_//_/
     </pre>
     <p class="tagline">Pay to keep the torch lit and win the pot.</p>
-    {{if .PlayerID}}
-    <p class="msg" data-testid="waiting-msg">You're in the waiting room.</p>
-    <p class="count" data-testid="player-count">Heroes: {{.PlayerCount}}</p>
-    <form class="leave" method="POST" action="/leave">
-        <button type="submit" data-testid="leave-btn">Leave</button>
-    </form>
-    {{else}}
     <form method="POST" action="/join">
         <button type="submit" data-testid="join-btn">Enter the dungeon</button>
     </form>
@@ -191,32 +291,102 @@
             requestAnimationFrame(tick);
         })();
 
-        // Enter/leave the waiting room: snuff the screen to black, swap the
-        // view while it's dark, then reveal it back up. Plain form POST still
-        // works without JS; honours prefers-reduced-motion.
+        // Move between views (join → invoice → waiting room) by snuffing the
+        // screen to black, swapping #view while dark, then revealing it back up.
+        // Plain form POST still works without JS; honours prefers-reduced-motion.
         (function () {
             var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
             var veil = document.getElementById('veil');
+            var pollTimer = null;
+
             function apply(text) {
                 var nv = new DOMParser().parseFromString(text, 'text/html').querySelector('#view');
                 if (nv) document.getElementById('view').innerHTML = nv.innerHTML;
+                watchInvoice();
             }
+
+            // run nav() -> Response, swap its #view in, and sync the address bar
+            // to the response's final URL (after any redirect, e.g. /join -> 303
+            // /invoice). push:false replays a popstate without a new entry.
+            function show(nav, push) {
+                return nav().then(function (res) {
+                    return res.text().then(function (text) {
+                        apply(text);
+                        if (push !== false && res.url) {
+                            var path = new URL(res.url).pathname;
+                            if (path !== location.pathname) history.pushState({}, '', path);
+                        }
+                    });
+                });
+            }
+
+            // fade to black, swap the view while dark via show(), then reveal
+            function transition(nav, opts) {
+                opts = opts || {};
+                function run() { return show(nav, opts.push); }
+                if (reduce) { run().catch(opts.fallback || function () {}); return; }
+                veil.addEventListener('transitionend', function onDark(ev) {
+                    if (ev.propertyName !== 'opacity') return;
+                    veil.removeEventListener('transitionend', onDark);
+                    run().then(function () {
+                        requestAnimationFrame(function () { veil.classList.remove('lit'); });
+                    }).catch(function () {
+                        veil.classList.remove('lit');
+                        if (opts.fallback) opts.fallback();
+                    });
+                });
+                veil.classList.add('lit');
+            }
+
+            // while showing an invoice, poll until it's paid, then enter the room
+            function watchInvoice() {
+                if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+                if (!document.getElementById('invoice')) return;
+                pollTimer = setInterval(function () {
+                    fetch('/invoice/status').then(function (r) { return r.json(); }).then(function (s) {
+                        if (s.paid) {
+                            clearInterval(pollTimer); pollTimer = null;
+                            strikeThenEnter();
+                        }
+                    }).catch(function () {});
+                }, 1500);
+            }
+
+            // payment landed: lightning strikes the torch, then we enter the room
+            function strikeThenEnter() {
+                var enter = function () { transition(function () { return fetch('/'); }); };
+                var strikes = document.querySelector('.strikes');
+                if (reduce || !strikes) { enter(); return; }
+                strikes.classList.add('fire');
+                setTimeout(enter, 650);
+            }
+
             document.addEventListener('submit', function (e) {
                 var form = e.target;
                 if (!form || form.tagName !== 'FORM') return;
                 e.preventDefault();
-                var pending = fetch(form.action, { method: 'POST' }).then(function (r) { return r.text(); });
-                if (reduce) { pending.then(apply).catch(function () { form.submit(); }); return; }
-                veil.addEventListener('transitionend', function onDark(ev) {
-                    if (ev.propertyName !== 'opacity') return;
-                    veil.removeEventListener('transitionend', onDark);
-                    pending.then(function (text) {
-                        apply(text);
-                        requestAnimationFrame(function () { veil.classList.remove('lit'); });
-                    }).catch(function () { form.submit(); });
-                });
-                veil.classList.add('lit');
+                transition(
+                    function () { return fetch(form.action, { method: 'POST' }); },
+                    { fallback: function () { form.submit(); } }
+                );
             });
+
+            // back/forward: fade to whatever view that URL renders, no new entry
+            window.addEventListener('popstate', function () {
+                transition(function () { return fetch(location.href); }, { push: false });
+            });
+
+            document.addEventListener('click', function (e) {
+                var btn = e.target.closest && e.target.closest('.copy');
+                if (!btn) return;
+                var inv = btn.getAttribute('data-bolt11');
+                if (inv && navigator.clipboard) navigator.clipboard.writeText(inv).then(function () {
+                    btn.textContent = 'copied';
+                    setTimeout(function () { btn.textContent = 'copy invoice'; }, 1500);
+                });
+            });
+
+            watchInvoice();
         })();
     </script>
 </body>

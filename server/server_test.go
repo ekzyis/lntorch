@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ekzyis/lntorch/db"
+	"github.com/ekzyis/lntorch/lightning"
 )
 
 func hasTestID(body, id string) bool {
@@ -25,22 +26,56 @@ func setupTestServer(t *testing.T) (*Server, func()) {
 		database.Close()
 		os.Remove(dbPath)
 	}
-	return New(database), cleanup
+	return New(database, lightning.NewMock(false)), cleanup
+}
+
+// join posts to /join, then forces the mock invoice paid and lets the status
+// handler admit the player. Returns the session cookie of a player now in the
+// waiting room.
+func join(t *testing.T, s *Server) *http.Cookie {
+	t.Helper()
+	jw := httptest.NewRecorder()
+	s.ServeHTTP(jw, httptest.NewRequest("POST", "/join", nil))
+
+	var cookie *http.Cookie
+	for _, c := range jw.Result().Cookies() {
+		if c.Name == "session" {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatal("expected session cookie from /join")
+	}
+
+	hash := strings.TrimPrefix(jw.Header().Get("Location"), "/invoice/")
+	s.ln.(*lightning.Mock).Pay(hash)
+
+	sw := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/invoice/status", nil)
+	req.AddCookie(cookie)
+	s.ServeHTTP(sw, req)
+	if !strings.Contains(sw.Body.String(), `"paid":true`) {
+		t.Fatalf("expected paid:true, got %s", sw.Body.String())
+	}
+	return cookie
+}
+
+func get(t *testing.T, s *Server, cookie *http.Cookie) string {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/", nil)
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	return w.Body.String()
 }
 
 func TestIndexWithoutCookie(t *testing.T) {
 	s, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-
-	s.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", w.Code)
-	}
-	body := w.Body.String()
+	body := get(t, s, nil)
 	if !hasTestID(body, "join-btn") {
 		t.Error("expected join-btn")
 	}
@@ -49,33 +84,106 @@ func TestIndexWithoutCookie(t *testing.T) {
 	}
 }
 
-func TestIndexWithCookie(t *testing.T) {
+func TestJoinRedirectsToInvoice(t *testing.T) {
 	s, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// First join to get a valid session
-	joinReq := httptest.NewRequest("POST", "/join", nil)
-	joinW := httptest.NewRecorder()
-	s.ServeHTTP(joinW, joinReq)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("POST", "/join", nil))
 
-	var sessionCookie *http.Cookie
-	for _, c := range joinW.Result().Cookies() {
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("expected redirect (303), got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/invoice/") {
+		t.Errorf("expected redirect to /invoice/<hash>, got %q", loc)
+	}
+	var cookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
 		if c.Name == "session" {
-			sessionCookie = c
-			break
+			cookie = c
+		}
+	}
+	if cookie == nil || cookie.Value == "" {
+		t.Fatal("expected a session cookie to be set")
+	}
+
+	// with the owning cookie, the hash URL renders the invoice
+	iw := httptest.NewRecorder()
+	ireq := httptest.NewRequest("GET", loc, nil)
+	ireq.AddCookie(cookie)
+	s.ServeHTTP(iw, ireq)
+	if iw.Code != http.StatusPaymentRequired {
+		t.Errorf("expected 402 Payment Required from %s, got %d", loc, iw.Code)
+	}
+	if !hasTestID(iw.Body.String(), "invoice") {
+		t.Errorf("expected invoice screen at %s", loc)
+	}
+
+	// without the cookie, the same URL must not reveal the invoice
+	nw := httptest.NewRecorder()
+	s.ServeHTTP(nw, httptest.NewRequest("GET", loc, nil))
+	if nw.Code != http.StatusSeeOther {
+		t.Errorf("expected redirect without the auth cookie, got %d", nw.Code)
+	}
+}
+
+func TestInvoiceForeignHashRedirects(t *testing.T) {
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// a session with its own pending invoice
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("POST", "/join", nil))
+	var cookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "session" {
+			cookie = c
 		}
 	}
 
-	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(sessionCookie)
-	w := httptest.NewRecorder()
-
-	s.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", w.Code)
+	// a hash this session doesn't own must not render, even with a valid cookie
+	req := httptest.NewRequest("GET", "/invoice/deadbeef", nil)
+	req.AddCookie(cookie)
+	rw := httptest.NewRecorder()
+	s.ServeHTTP(rw, req)
+	if rw.Code != http.StatusSeeOther {
+		t.Errorf("expected redirect for a hash the session doesn't own, got %d", rw.Code)
 	}
-	body := w.Body.String()
+}
+
+func TestUnpaidInvoiceDoesNotEnter(t *testing.T) {
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("POST", "/join", nil))
+	var cookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "session" {
+			cookie = c
+		}
+	}
+
+	// status without paying should report not paid and not admit
+	sw := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/invoice/status", nil)
+	req.AddCookie(cookie)
+	s.ServeHTTP(sw, req)
+	if !strings.Contains(sw.Body.String(), `"paid":false`) {
+		t.Errorf("expected paid:false, got %s", sw.Body.String())
+	}
+	if hasTestID(get(t, s, cookie), "waiting-msg") {
+		t.Error("should not be in the waiting room before paying")
+	}
+}
+
+func TestPaidJoinEntersRoom(t *testing.T) {
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	cookie := join(t, s)
+	body := get(t, s, cookie)
 	if !hasTestID(body, "waiting-msg") {
 		t.Error("expected waiting-msg")
 	}
@@ -87,66 +195,24 @@ func TestIndexWithCookie(t *testing.T) {
 	}
 }
 
-func TestJoinSetsCookie(t *testing.T) {
-	s, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	req := httptest.NewRequest("POST", "/join", nil)
-	w := httptest.NewRecorder()
-
-	s.ServeHTTP(w, req)
-
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("expected redirect (303), got %d", w.Code)
-	}
-	cookies := w.Result().Cookies()
-	var sessionCookie *http.Cookie
-	for _, c := range cookies {
-		if c.Name == "session" {
-			sessionCookie = c
-			break
-		}
-	}
-	if sessionCookie == nil {
-		t.Fatal("expected session cookie to be set")
-	}
-	if sessionCookie.Value == "" {
-		t.Error("expected non-empty session")
-	}
-}
-
 func TestLeaveClearsCookie(t *testing.T) {
 	s, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// First join
-	joinReq := httptest.NewRequest("POST", "/join", nil)
-	joinW := httptest.NewRecorder()
-	s.ServeHTTP(joinW, joinReq)
-
-	var sessionCookie *http.Cookie
-	for _, c := range joinW.Result().Cookies() {
-		if c.Name == "session" {
-			sessionCookie = c
-			break
-		}
-	}
+	cookie := join(t, s)
 
 	req := httptest.NewRequest("POST", "/leave", nil)
-	req.AddCookie(sessionCookie)
+	req.AddCookie(cookie)
 	w := httptest.NewRecorder()
-
 	s.ServeHTTP(w, req)
 
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("expected redirect (303), got %d", w.Code)
 	}
-	cookies := w.Result().Cookies()
 	var clearedCookie *http.Cookie
-	for _, c := range cookies {
+	for _, c := range w.Result().Cookies() {
 		if c.Name == "session" {
 			clearedCookie = c
-			break
 		}
 	}
 	if clearedCookie == nil {
@@ -161,45 +227,13 @@ func TestPlayerCount(t *testing.T) {
 	s, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Join with first player
-	req1 := httptest.NewRequest("POST", "/join", nil)
-	w1 := httptest.NewRecorder()
-	s.ServeHTTP(w1, req1)
-	var cookie1 *http.Cookie
-	for _, c := range w1.Result().Cookies() {
-		if c.Name == "session" {
-			cookie1 = c
-			break
-		}
-	}
-
-	// Check count is 1
-	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(cookie1)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if !strings.Contains(w.Body.String(), "Heroes: 1") {
+	c1 := join(t, s)
+	if !strings.Contains(get(t, s, c1), "Heroes: 1") {
 		t.Error("expected player count 1")
 	}
 
-	// Join with second player
-	req2 := httptest.NewRequest("POST", "/join", nil)
-	w2 := httptest.NewRecorder()
-	s.ServeHTTP(w2, req2)
-	var cookie2 *http.Cookie
-	for _, c := range w2.Result().Cookies() {
-		if c.Name == "session" {
-			cookie2 = c
-			break
-		}
-	}
-
-	// Check count is 2
-	req = httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(cookie2)
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if !strings.Contains(w.Body.String(), "Heroes: 2") {
+	c2 := join(t, s)
+	if !strings.Contains(get(t, s, c2), "Heroes: 2") {
 		t.Error("expected player count 2")
 	}
 }
@@ -208,46 +242,49 @@ func TestFullFlow(t *testing.T) {
 	s, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Start without cookie
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if !hasTestID(w.Body.String(), "join-btn") {
+	// Start without cookie -> join screen
+	if !hasTestID(get(t, s, nil), "join-btn") {
 		t.Error("should show join-btn initially")
 	}
 
-	// Join
-	req = httptest.NewRequest("POST", "/join", nil)
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	var sessionCookie *http.Cookie
+	// Enter -> redirect to the invoice screen at /invoice/<hash>
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("POST", "/join", nil))
+	loc := w.Header().Get("Location")
+	if w.Code != http.StatusSeeOther || !strings.HasPrefix(loc, "/invoice/") {
+		t.Errorf("should redirect to /invoice/<hash> after entering, got %d %q", w.Code, loc)
+	}
+	var cookie *http.Cookie
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "session" {
-			sessionCookie = c
-			break
+			cookie = c
 		}
 	}
-
-	// Verify in room
-	req = httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(sessionCookie)
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if !hasTestID(w.Body.String(), "waiting-msg") {
-		t.Error("should show waiting-msg after join")
+	iw := httptest.NewRecorder()
+	ireq := httptest.NewRequest("GET", loc, nil)
+	ireq.AddCookie(cookie)
+	s.ServeHTTP(iw, ireq)
+	if !hasTestID(iw.Body.String(), "invoice") {
+		t.Error("should show invoice at its URL after entering")
 	}
 
-	// Leave
-	req = httptest.NewRequest("POST", "/leave", nil)
-	req.AddCookie(sessionCookie)
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, req)
+	// Pay -> status admits -> waiting room
+	hash := strings.TrimPrefix(loc, "/invoice/")
+	s.ln.(*lightning.Mock).Pay(hash)
+	sw := httptest.NewRecorder()
+	statusReq := httptest.NewRequest("GET", "/invoice/status", nil)
+	statusReq.AddCookie(cookie)
+	s.ServeHTTP(sw, statusReq)
 
-	// Verify out (no cookie)
-	req = httptest.NewRequest("GET", "/", nil)
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if !hasTestID(w.Body.String(), "join-btn") {
-		t.Error("should show join-btn after leave")
+	if !hasTestID(get(t, s, cookie), "waiting-msg") {
+		t.Error("should be in waiting room after paying")
+	}
+
+	// Leave -> back to join screen
+	leaveReq := httptest.NewRequest("POST", "/leave", nil)
+	leaveReq.AddCookie(cookie)
+	s.ServeHTTP(httptest.NewRecorder(), leaveReq)
+	if !hasTestID(get(t, s, nil), "join-btn") {
+		t.Error("should show join-btn after leaving")
 	}
 }
